@@ -23,10 +23,14 @@ async function main() {
     const control = page.getByRole('combobox', { name: label, exact: true });
     await control.fill(text);
     const wrapper = page.locator('.selectize-control').filter({ has: control });
-    await wrapper.locator('.selectize-dropdown').getByText(text, { exact: true }).click();
+    const exact = new RegExp('^' + text.replace(/[^A-Za-z0-9 _-]/g, '\\$&') + '$');
+    await wrapper.locator('.selectize-dropdown [data-selectable]').filter({ hasText: exact }).click();
   }
   async function tab(label) {
     await page.getByRole('tab', { name: label, exact: true }).click();
+  }
+  async function details(label) {
+    await page.locator('summary').filter({ hasText: new RegExp('^' + label + '$') }).first().click();
   }
   async function noOutputErrors() {
     await page.waitForFunction(() => !document.documentElement.classList.contains('shiny-busy'));
@@ -52,9 +56,12 @@ async function main() {
     await page.getByText('observation key sets differ', { exact: true }).waitFor();
     await select('Comparison model', 'run102:p1 - Synthetic oral PK review fixture 102');
     await page.getByText('Delta OFV (comparison - reference) -21.453', { exact: true }).waitFor();
+    await page.getByText('Delta AIC (comparison - reference) -19.453', { exact: true }).waitFor();
+    await page.locator('#review_summary').getByText('ETA(2) SD 38% · EPS SD 14%', { exact: true }).waitFor();
     await select('Reference model', 'run102:p1 - Synthetic oral PK review fixture 102');
     await select('Comparison model', 'run101:p1 - Synthetic oral PK review fixture 101');
     await page.getByText('Delta OFV (comparison - reference) 21.453', { exact: true }).waitFor();
+    await page.getByText('Delta AIC (comparison - reference) 19.453', { exact: true }).waitFor();
     await select('Reference model', 'run101:p1 - Synthetic oral PK review fixture 101');
     await select('Comparison model', 'run102:p1 - Synthetic oral PK review fixture 102');
     await page.getByRole('row', { name: /^20 20120 12/ }).click();
@@ -67,11 +74,50 @@ async function main() {
       await page.waitForFunction(() => document.querySelector('#reference_plot img')?.naturalWidth > 0);
       await noOutputErrors();
     }
-    await tab('Parameters & checks');
+    await details('Parameters & checks');
     await page.locator('#reference_parameters tbody tr').first().waitFor();
+    await details('Code differences');
+    await page.locator('.code-diff').getByText('OUTMAG correction', { exact: false }).waitFor();
     await noOutputErrors();
+    await tab('All runs');
+    await page.getByText('Tree', { exact: true }).click();
+    await page.locator('.model-tree li li button').filter({ hasText: 'run102:p1' }).click();
+    await page.getByText('Selected run102:p1', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Set as comparison', exact: true }).click();
+    await tab('Inspector');
+    await page.getByText('Comparison 216 rows', { exact: true }).waitFor();
+    await details('Source tables');
+    await page.locator('#inspect_table').selectOption('run102/patab102');
+    await page.getByText('Comparison 24 rows', { exact: true }).waitFor();
+    await select('X axis', 'WT');
+    await select('Y axis', 'ETA1');
+    await page.waitForFunction(() => document.querySelector('#inspect_plot img')?.naturalWidth > 0);
+    await page.locator('#inspect_table').selectOption('');
+    await page.getByText('Comparison 216 rows', { exact: true }).waitFor();
+    await details('Source tables');
+    await page.getByRole('button', { name: 'Add filter', exact: true }).click();
+    await page.locator('#inspect_filter_col').selectOption('SEX');
+    await select('Values', '1');
+    await page.getByRole('button', { name: 'Apply filter', exact: true }).click();
+    await page.getByText('SEX Equals / in list 1', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Reset filters', exact: true }).click();
+    await page.getByText('Comparison 216 rows', { exact: true }).waitFor();
+    await select('X axis', 'TIME');
+    await select('Y axis', 'DV');
+    await select('Subjects', '20');
+    await page.getByText('Comparison 9 rows', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Add filter', exact: true }).click();
+    await page.locator('#inspect_filter_col').selectOption('TIME');
+    await page.locator('#inspect_filter_op').selectOption('ge');
+    await page.getByRole('spinbutton', { name: 'Value', exact: true }).fill('2');
+    await page.getByRole('button', { name: 'Apply filter', exact: true }).click();
+    await page.getByText('TIME At least 2', { exact: true }).waitFor();
+    await page.waitForFunction(() => document.querySelector('#inspect_profile img')?.naturalWidth > 0);
+    await noOutputErrors();
+    await page.screenshot({ path: path.join(output, 'inspector.png'), fullPage: true });
+    await tab('Evaluation');
     await tab('Bootstrap');
-    await page.getByText('8 replicates | 5 included', { exact: true }).waitFor();
+    await page.getByText(/8 replicates recorded \| 5 included/).waitFor();
     await page.waitForFunction(() => document.querySelector('#bootstrap_plot img')?.naturalWidth > 0);
     await noOutputErrors();
     await page.screenshot({ path: path.join(output, 'bootstrap.png'), fullPage: true });
@@ -84,7 +130,11 @@ async function main() {
     await page.getByText('run103 | Ordinary VPC', { exact: true }).waitFor();
     await page.getByText('Correction differs between the selected analyses.', { exact: false }).waitFor();
     await select('Comparison VPC analysis', 'run102 vpc:run102:pcVPC');
-    await tab('Compact archive');
+    await tab('Sensitivity');
+    await select('Runs to compare with the reference', 'run103:p1');
+    await page.locator('#sensitivity_table').getByText('run103:p1', { exact: true }).waitFor();
+    await page.locator('#sensitivity_table').getByText('Different data signature', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'Compact archive', exact: true }).click();
     await page.getByRole('textbox', { name: 'Or save to a local folder', exact: true }).fill(output);
     await page.getByRole('button', { name: 'Save and verify', exact: true }).click();
     await page.getByText('Saved and reopened successfully', { exact: true }).waitFor();
@@ -104,13 +154,32 @@ async function main() {
     await fresh.getByRole('cell', { name: 'run101:p1', exact: true }).waitFor();
     await fresh.getByRole('button', { name: 'Open comparison' }).click();
     await fresh.getByText('Delta OFV (comparison - reference) -21.453', { exact: true }).waitFor();
+    await fresh.getByText('Delta AIC (comparison - reference) -19.453', { exact: true }).waitFor();
+    await fresh.getByRole('tab', { name: 'Inspector', exact: true }).click();
+    await fresh.getByText('TIME At least 2', { exact: true }).waitFor();
+    await fresh.waitForFunction(() => document.querySelector('#inspect_profile img')?.naturalWidth > 0);
+    await fresh.getByRole('tab', { name: 'Evaluation', exact: true }).click();
     await fresh.getByRole('tab', { name: 'Bootstrap', exact: true }).click();
-    await fresh.getByText('8 replicates | 5 included', { exact: true }).waitFor();
+    await fresh.getByText(/8 replicates recorded \| 5 included/).waitFor();
     await fresh.getByRole('tab', { name: 'VPC / pcVPC', exact: true }).click();
     await fresh.getByText('run101 | Prediction corrected', { exact: true }).waitFor();
     await fresh.close();
 
-    await page.setViewportSize({ width: 768, height: 1024 });
+    const legacyPath = process.env.NMREVIEW_LEGACY_ARCHIVE;
+    if (legacyPath) {
+      const legacy = await browser.newPage();
+      legacy.on('pageerror', error => errors.push(error.message));
+      await legacy.goto(url);
+      await legacy.locator('#archive_file').setInputFiles(legacyPath);
+      await legacy.getByRole('cell', { name: 'run101:p1', exact: true }).waitFor();
+      await legacy.getByRole('button', { name: 'Open comparison' }).click();
+      await legacy.getByText('Delta OFV (comparison - reference) -21.453', { exact: true }).waitFor();
+      await legacy.getByText('Delta AIC (comparison - reference) withheld', { exact: true }).waitFor();
+      await legacy.getByRole('tab', { name: 'Inspector', exact: true }).click();
+      await legacy.getByText('Comparison 216 rows', { exact: true }).waitFor();
+      await legacy.close();
+    }
+    await page.setViewportSize({ width: 1024, height: 768 });
     await tab('Compare');
     await noOutputErrors();
     await page.screenshot({ path: path.join(output, 'compare-tablet.png'), fullPage: true });
@@ -118,9 +187,10 @@ async function main() {
     assert.deepEqual(externalRequests, []);
     const result = { passed: true, archiveBytes: fs.statSync(archive).size, archive: path.basename(archive),
       scenarios: ['all-run selection', 'arbitrary reference/comparison', 'mismatched data gate',
-        'linked observation', 'four diagnostics', 'parameter checks', 'bootstrap', 'pcVPC',
-        'compact save', 'fresh browser archive reopen', 'tablet layout', 'local-only requests'],
-      screenshots: ['compare.png', 'bootstrap.png', 'pcvpc.png', 'compare-tablet.png'] };
+        'linked observation', 'four diagnostics', 'AIC and shrinkage', 'code diff and tree', 'Inspector axes, subjects, auxiliary table, numeric and category filters',
+        'bootstrap', 'pcVPC', 'sensitivity', 'compact save', 'fresh browser archive reopen', '1024px layout', 'local-only requests',
+        ...(legacyPath ? ['v0.1.0 archive reopen'] : [])],
+      screenshots: ['compare.png', 'inspector.png', 'bootstrap.png', 'pcvpc.png', 'compare-tablet.png'] };
     fs.writeFileSync(path.join(output, 'browser-results.json'), JSON.stringify(result, null, 2));
     console.log(JSON.stringify(result));
   } finally {

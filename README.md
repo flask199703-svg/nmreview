@@ -32,9 +32,9 @@ The application binds to `127.0.0.1`. Setup downloads R packages from CRAN. Ordi
 
 1. Click **Browse…** to select a NONMEM output folder using the native Windows folder dialog. You can also enter a path and click **Scan folder**.
 2. **All runs** lists the discovered estimation results. Search, sort, select a row, then click **Set as reference** or **Set as comparison**. Both models can also be changed independently on **Compare**.
-3. Compare diagnostics on common axes. Select a residual candidate or click a plotted observation to inspect the individual profile and source line.
-4. Review estimates and termination messages in **Parameters & checks**. Use **Bootstrap** for replicate distributions and intervals. Use **VPC / pcVPC** for stored bin summaries and simulation percentile confidence bands.
-5. In **Compact archive**, choose whether to retain observation rows. Download a SQLite archive or browse to a destination folder and click **Save and verify**. **Open archive** reopens the archive independently of the original output directory.
+3. **Compare** shows AIC, the number of estimated parameters, and shrinkage alongside the run status. Expand **Parameters & checks** for estimates, ETABAR, matrices and convergence evidence. **Code differences** shows changes in the selected control blocks. The **Tree** view in **All runs** uses declared or manually assigned parents.
+4. In **Inspector**, choose axes and subjects, then add numeric, category or missing-value filters. Select a plotted observation or displayed row for its source and individual profile. Plot and source-table options are expandable.
+5. **Evaluation** contains VPC/pcVPC, bootstrap, and a sensitivity comparison of completed runs. Use **Compact archive** in the header to save the results and review settings. **Open archive** can reopen files written by version 0.1.0.
 
 Native dialogs browse folders on the computer running R. Use a local R session for Windows Explorer access.
 
@@ -61,7 +61,7 @@ All included data and results are generated synthetic examples, **not clinical d
 
 ```powershell
 R CMD build .
-R CMD check --no-manual nmreview_0.1.0.tar.gz
+R CMD check --no-manual nmreview_0.2.0.tar.gz
 ```
 
 Tests use synthetic fixtures. External public fixtures, when used for verification, are downloaded into temporary directories and are not redistributed. Runtime patient data and archives belong outside this repository. The repository has no telemetry or automatic uploads.

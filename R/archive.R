@@ -33,10 +33,13 @@ nm_archive_frame_paths <- function(d, root = NULL) {
 nm_archive_project <- function(project, include_observations = TRUE) {
   if (is.null(project) || !is.list(project)) stop("project must be a project list")
   p <- project
-  p$schema_version <- as.integer(p$schema_version %||% 1L)
+  p$schema_version <- 2L
   p$models <- lapply(p$models %||% list(), function(m) {
     source_root <- if (is.list(m$source)) m$source$root %||% NULL else NULL
     m$source <- nm_archive_normalize_source(m$source)
+    m$live_root <- NULL
+    if (!isTRUE(include_observations)) m$stored_tables <- NULL
+    m$table_catalog <- names(m$stored_tables) %||% character()
     m$data <- nm_archive_frame_paths(m$data, source_root)
     if (!isTRUE(include_observations)) m$data <- data.frame(.source_line = integer(), .source_file = character(), stringsAsFactors = FALSE)
     m
@@ -53,11 +56,15 @@ nm_archive_project <- function(project, include_observations = TRUE) {
     if (!isTRUE(include_observations)) v["observations"] <- list(NULL)
     v
   })
+  if (!isTRUE(include_observations) && !is.null(p$view$inspector)) {
+    p$view$inspector$ids <- NULL
+    p$view$inspector$filters <- NULL
+  }
   p
 }
 
 nm_archive_payloads <- function(project) {
-  list(schema_version = as.integer(project$schema_version %||% 1L), models = project$models %||% list(), bootstraps = project$bootstraps %||% list(), vpcs = project$vpcs %||% list(), manifest = project$manifest %||% data.frame(stringsAsFactors = FALSE), notices = as.character(project$notices %||% character()))
+  list(schema_version = as.integer(project$schema_version %||% 1L), models = project$models %||% list(), bootstraps = project$bootstraps %||% list(), vpcs = project$vpcs %||% list(), manifest = project$manifest %||% data.frame(stringsAsFactors = FALSE), notices = as.character(project$notices %||% character()), view = project$view %||% list())
 }
 
 nm_archive_row_counts <- function(project) {
@@ -70,6 +77,10 @@ nm_archive_row_counts <- function(project) {
     id <- m$id %||% ""
     add("model", id, "data", if (is.data.frame(m$data)) nrow(m$data) else 0L)
     add("model", id, "parameters", if (is.data.frame(m$parameters)) nrow(m$parameters) else 0L)
+    for (file in names(m$stored_tables)) {
+      tables <- m$stored_tables[[file]]
+      for (i in seq_along(tables)) add("model", id, paste0("table ", i, ": ", file), nrow(tables[[i]]))
+    }
   }
   for (b in boots) {
     id <- b$id %||% ""
@@ -113,7 +124,7 @@ nm_archive_write <- function(con, project) {
   DBI::dbExecute(con, "CREATE TABLE archive_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
   DBI::dbExecute(con, "CREATE TABLE archive_payload (kind TEXT PRIMARY KEY, payload TEXT NOT NULL, checksum TEXT NOT NULL)")
   DBI::dbExecute(con, "CREATE TABLE archive_counts (kind TEXT NOT NULL, id TEXT NOT NULL, table_name TEXT NOT NULL, nrow INTEGER NOT NULL)")
-  DBI::dbExecute(con, "INSERT INTO archive_meta(key,value) VALUES ('schema_version','1'), ('format','nmreview-json-v1')")
+  DBI::dbExecute(con, "INSERT INTO archive_meta(key,value) VALUES ('schema_version','2'), ('format','nmreview-json-v2')")
   for (nm in names(nm_archive_payloads(project))) {
     payload <- nm_archive_json(nm_archive_payloads(project)[[nm]])
     DBI::dbExecute(con, "INSERT INTO archive_payload(kind,payload,checksum) VALUES (?,?,?)", params = list(nm, payload, nm_archive_digest(payload)))
@@ -128,11 +139,11 @@ nm_archive_read <- function(path) {
   if (!DBI::dbExistsTable(con, "archive_meta") || !DBI::dbExistsTable(con, "archive_payload") || !DBI::dbExistsTable(con, "archive_counts")) stop("not an nmreview archive")
   meta <- DBI::dbGetQuery(con, "SELECT key,value FROM archive_meta")
   ver <- meta$value[match("schema_version", meta$key)]
-  if (is.na(ver) || ver != "1") stop("unsupported archive schema version")
+  if (is.na(ver) || !ver %in% c("1", "2")) stop("unsupported archive schema version")
   pp <- DBI::dbGetQuery(con, "SELECT kind,payload,checksum FROM archive_payload")
   if (any(vapply(seq_len(nrow(pp)), function(i) !identical(as.character(pp$checksum[[i]]), nm_archive_digest(pp$payload[[i]])), logical(1)))) stop("archive payload checksum validation failed")
   obj <- stats::setNames(lapply(pp$payload, jsonlite::unserializeJSON), pp$kind)
-  project <- list(schema_version = as.integer(obj$schema_version %||% 1L), models = obj$models %||% list(), bootstraps = obj$bootstraps %||% list(), vpcs = obj$vpcs %||% list(), manifest = obj$manifest %||% data.frame(stringsAsFactors = FALSE), notices = obj$notices %||% character())
+  project <- list(schema_version = as.integer(ver), models = obj$models %||% list(), bootstraps = obj$bootstraps %||% list(), vpcs = obj$vpcs %||% list(), manifest = obj$manifest %||% data.frame(stringsAsFactors = FALSE), notices = obj$notices %||% character(), view = obj$view %||% list())
   counts <- DBI::dbGetQuery(con, "SELECT kind,id,table_name,nrow FROM archive_counts")
   nm_archive_validate_counts(project, counts)
   structure(project, class = c("nmreview_project", "list"))

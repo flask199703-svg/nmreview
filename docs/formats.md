@@ -4,13 +4,25 @@
 
 Select a project folder containing model control streams (`.mod` or `.ctl`), report files (`.lst`, `.res` or `.out`), raw estimation results and diagnostic tables. Relative table names are read from `$TABLE FILE=...` declarations. The reader uses the actual table headers and retains the source line of each diagnostic row.
 
-The numerical reader recognizes `ITERATION`, parameter columns and the raw-output sentinels for final estimates, standard errors and fixed parameters. Missing or unresolved information is shown as unavailable. Simulation-only problems are excluded from the model-comparison list. Version 0.1 withholds final values from ambiguous multiple-stage or multiple-table EXT results. Keep each control stream and its corresponding report together. File layouts that cannot be resolved safely produce import notes.
+The numerical reader recognizes `ITERATION`, parameter columns and the raw-output sentinels for final estimates, standard errors and fixed parameters. Missing or unresolved information is shown as unavailable. Simulation-only problems are excluded from the model-comparison list. When multiple estimation tables are identified, select the table in Compare. A table without a reliable problem or stage assignment remains unavailable. Keep each control stream and its corresponding report together. File layouts that cannot be resolved safely produce import notes.
 
 Ordinary observation plots exclude dose/event rows, missing observations and rows flagged as BLQ/BQL. Censored observations can still contribute to the original fitted likelihood, so review the original model's treatment of those observations separately. The viewer does not calculate new NONMEM residuals.
 
 ## Observation correspondence
 
 The comparison verifies a unique record identifier or a suitable combination of subject, time and endpoint/occasion identifiers. Matching also checks shared observation values. Reordered records can match. Equal subject counts or equal numbers of rows alone do not establish correspondence. Duplicate or incompatible keys withhold linked comparison. The OFV difference has the sign **comparison minus reference**. The application provides review evidence and does not rank models or calculate likelihood-ratio p-values.
+
+## Estimation diagnostics and AIC
+
+EXT and sidecar tables are associated by identified estimation table and problem. Listing and SHK values retain their source and reported definition. Source disagreements are shown. The SHK reader supports single-subpopulation layouts with ETA columns and EPS positions established from SIGMA. For correlation matrices, a diagonal containing standard errors is recognized by agreement with the matched EXT or covariance output before it is normalized to one. A condition number reported by NONMEM is displayed separately from the eigenvalue ratio computed for an identified matrix.
+
+AIC on the NONMEM objective scale is OFV + 2k. The count uses the final EXT fixed flags and supported diagonal, block and SAME structures. Unsupported counts can be supplied with a recorded basis. The app withholds AIC for objectives or estimation states whose likelihood basis is unresolved, including evaluation-only and penalized runs. Delta AIC requires compatible methods, fitted input evidence, response scale and likelihood convention. Control comments of the form "; NMREVIEW LIKELIHOOD=..." and "; NMREVIEW DV_SCALE=..." can record project declarations. The comparison settings can record an explicit assumption when evidence is incomplete. A known mismatch keeps the delta unavailable.
+
+## Inspector and model relationships
+
+The Inspector reads declared whitespace tables lazily and preserves their sections and source row identifiers. Choose a source table, and optionally join a second single-section table by verified ROW and subject keys or by a single record per subject. STUDY and ID identify a subject when both are present. Numeric identifiers are read as text to retain their written form. Display filters affect the plot and displayed rows. TAD presets use a supplied TAD column. Point selection is available for a single untransformed numeric scatter or profile. Use the displayed-row table for selection in other plots.
+
+The Tree view reads a "; NMREVIEW PARENT=..." control comment or a parent assigned in the app. It preserves unresolved references and rejects cycles. Code differences compare the two imported problem blocks, using a bounded line comparison with context.
 
 ## PsN bootstrap
 
@@ -34,7 +46,7 @@ The shipped positive pcVPC examples are independently generated synthetic summar
 
 ## Compact archives
 
-An NM Review archive is a versioned SQLite file containing typed JSON payloads, source inventory, payload checksums and row-count validation. A temporary file is written and independently read back before completion. The loader validates the archive structure and supported schema. Saves use a new filename and a per-target lock. Choose another filename if an archive or an interrupted save already occupies that name.
+An NM Review archive is a versioned SQLite file containing typed JSON payloads, source inventory, payload checksums and row-count validation. Version 0.2 reads schema 1 and writes schema 2. Schema 2 keeps review settings, parsed estimation diagnostics, control blocks and the auxiliary tables used in the saved Inspector view. The source data option governs both primary and auxiliary observation rows. Old archives expose the results they contain, with newly introduced fields shown as unavailable when evidence is missing. A temporary file is written and independently read back before completion. The loader validates the archive structure and supported schema. Saves use a new filename and a per-target lock. Choose another filename if an archive or an interrupted save already occupies that name.
 
 Optional observation rows retain linked diagnostic functionality. With these rows omitted, the archive still retains parameter, bootstrap and VPC summaries. The archive excludes bootstrap execution trees and raw VPC simulation matrices. Rebinning or applying a new correction requires the corresponding underlying data.
 

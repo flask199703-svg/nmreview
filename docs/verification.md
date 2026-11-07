@@ -2,6 +2,14 @@
 
 Verification date is 2026-11-07. The local environment is Windows 11 x64 with R 4.6.0. Browser checks use Microsoft Edge in a fresh automated session. All repository fixtures are synthetic.
 
+## Version 0.2.0
+
+- R CMD check with the optional legacy and pinned upstream acceptance inputs returned **Status OK**. All six test scripts passed. The synthetic pair gives AIC -198.423 at k=6 and -217.876 at k=7, with comparison minus reference equal to -19.453. The changed input in run103 withholds the delta.
+- The Edge smoke test passed 16 scenarios. It exercised auxiliary and diagnostic table selection, Inspector axes and subjects, numeric and category filters, code differences and the model tree, AIC and shrinkage, VPC and bootstrap, sensitivity runs, archive save/download/reopen, and the 1024 px layout. A new browser session restored Inspector filtering and the selected subject. The run observed no JavaScript errors or external HTTP requests.
+- Two SQLite files created with the installed 0.1.0 package before the upgrade reopened successfully. The full archive retained 216 diagnostic rows for run101 and the summary archive retained its bootstrap and VPC results. The full archive also reopened through the browser. Fields introduced in 0.2 are unavailable in the legacy archive when the evidence was omitted.
+- A public two-stage NMdata example provided an independent SHK check. Its ETA(2) SD shrinkages were 7.45914% for table 1 and 7.35284% for table 2. The reviewer distinguished the completed stochastic stage from the expectation-only stage and kept the corresponding condition numbers 108.384 and 45.2294 separate. [Pinned NMdata example](https://github.com/nmautoverse/NMdata/tree/180723b5c75d4ef57b72eba9cfcfa017895317d0/inst/examples/nonmem)
+- The browser scan used a typed folder path. The native Browse helper retains the previously confirmed Windows selection path.
+
 ## Final acceptance
 
 - `R CMD build .` and `R CMD check --no-manual nmreview_0.1.0.tar.gz`: **Status OK**, zero errors, warnings and notes. All five test files passed.

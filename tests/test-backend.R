@@ -6,9 +6,7 @@ run_backend_tests <- function() {
     roots <- roots[file.exists(file.path(roots, "R", "import.R"))]
     if (length(roots)) {
       root <- roots[[1L]]
-      source(file.path(root, "R", "import.R"), encoding = "UTF-8")
-      source(file.path(root, "R", "compare.R"), encoding = "UTF-8")
-      source(file.path(root, "R", "archive.R"), encoding = "UTF-8")
+      for (file in list.files(file.path(root, "R"), full.names = TRUE)) source(file, encoding = "UTF-8")
     } else if (requireNamespace("nmreview", quietly = TRUE)) library(nmreview) else stop("nmreview package or checkout source not found")
   }
   td <- tempfile("nmreview-backend-")

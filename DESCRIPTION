@@ -1,7 +1,7 @@
 Package: nmreview
 Type: Package
 Title: Local Review and Compact Storage of NONMEM Results
-Version: 0.1.0
+Version: 0.2.0
 Authors@R: person("NM Review", "Contributors", role = c("aut", "cre"), email = "nmreview@example.org")
 Description: A local Shiny application for comparing completed NONMEM runs,
     inspecting linked observations, and preserving compact PsN bootstrap and

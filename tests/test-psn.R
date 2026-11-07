@@ -2,10 +2,10 @@
 roots <- c(getwd(), dirname(getwd()), file.path(getwd(), "..", ".."))
 root <- roots[file.exists(file.path(roots, "R", "import.R"))][1L]
 if (!is.na(root)) {
-  source(file.path(root, "R", "import.R"))
+  for (file in list.files(file.path(root, "R"), full.names = TRUE)) source(file, encoding = "UTF-8")
 } else {
   library(nmreview)
-  for (n in c("nm_one_num", "nm_bootstrap_long", "nm_parse_metadata_file")) {
+  for (n in c("nm_one_num", "nm_bootstrap_long", "nm_parse_metadata_file", "observation_data")) {
     assign(n, getFromNamespace(n, "nmreview"))
   }
 }
@@ -96,7 +96,7 @@ if (nzchar(upstream)) {
   stopifnot(
     m$nind == 74, m$nobs == 476, nrow(d) == 476,
     identical(m$ofv, -1403.905186336465), sum(abs(d$CWRES) > 3) == 4,
-    d$ID[which.max(abs(d$CWRES))] == 703,
+    nm_one_num(d$ID[which.max(abs(d$CWRES))]) == 703,
     d$.source_line[which.max(abs(d$CWRES))] == 348
   )
   psn <- file.path(upstream, "PsN", "test", "test_files", "SO", "parser_psn")

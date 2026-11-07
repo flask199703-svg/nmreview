@@ -83,7 +83,7 @@ observation_rows <- function(model) {
   d[keep, , drop = FALSE]
 }
 
-model_rows <- function(project, reference = NULL, candidate = NULL) {
+model_rows <- function(project, reference = NULL, candidate = NULL, detailed = FALSE) {
   if (!length(project$models)) {
     return(data.frame())
   }
@@ -95,11 +95,13 @@ model_rows <- function(project, reference = NULL, candidate = NULL) {
       Method = m$method %or% "Unknown", Subjects = m$nind %or% NA,
       Observations = m$nobs %or% NA, Termination = m$status %or% "Unknown",
       Covariance = covariance_label(m$covariance), OFV = m$ofv %or% NA,
+      AIC = nm_model_aic(m)$value, Shrinkage = nm_shrinkage_label(m),
       Diagnostics = paste(intersect(c("DV", "PRED", "IPRED", "CWRES", "IWRES", "WRES"), names(m$data)), collapse = ", "),
       stringsAsFactors = FALSE
     )
   })
-  do.call(rbind, rows)
+  d <- do.call(rbind, rows)
+  if (isTRUE(detailed)) d else d[c("Role", "Run", "Description", "OFV", "AIC", "Termination", "Covariance", "Shrinkage")]
 }
 
 review_datatable <- function(data, rows = 8, select = "single") {
@@ -155,7 +157,8 @@ nmreview_app <- function(demo = FALSE) {
       shiny::div(shiny::h1("NM Review"), shiny::span("NONMEM model comparison", class = "app-subtitle")),
       shiny::div(
         class = "header-actions", shiny::actionButton("demo", "Load synthetic demo"),
-        shiny::fileInput("archive_file", label = NULL, buttonLabel = "Open archive", placeholder = "Portable .sqlite", accept = ".sqlite")
+        shiny::fileInput("archive_file", label = NULL, buttonLabel = "Open archive", placeholder = "Portable .sqlite", accept = ".sqlite"),
+        shiny::actionButton("go_archive", "Compact archive"), shiny::actionButton("go_help", "Help")
       )
     ),
     shiny::div(
@@ -176,7 +179,12 @@ nmreview_app <- function(demo = FALSE) {
             shiny::actionButton("set_candidate", "Set as comparison"),
             shiny::actionButton("go_compare", "Open comparison", class = "btn-primary")
           ),
-          DT::DTOutput("runs")
+          shiny::div(class = "action-row",
+            shiny::radioButtons("runs_view", "View", c("List", "Tree"), inline = TRUE),
+            shiny::conditionalPanel("input.runs_view === 'List'", shiny::checkboxInput("runs_details", "More columns")),
+            shiny::conditionalPanel("input.runs_view === 'Tree'", shiny::actionButton("tree_edit", "Set model parent"))),
+          shiny::conditionalPanel("input.runs_view === 'List'", DT::DTOutput("runs")),
+          shiny::conditionalPanel("input.runs_view === 'Tree'", shiny::uiOutput("run_tree"))
         ), shiny::uiOutput("project_notices")
       ),
       shiny::tabPanel("Compare",
@@ -189,7 +197,17 @@ nmreview_app <- function(demo = FALSE) {
           shiny::selectInput("endpoint", "Endpoint (DVID)", choices = "All"),
           shiny::numericInput("threshold", "Residual candidate |value| >", 3, min = 0.1, step = 0.5)
         ),
+        shiny::uiOutput("stage_controls"),
         shiny::uiOutput("comparison_status"),
+        shiny::uiOutput("review_summary"),
+        shiny::tags$details(class = "review-card", shiny::tags$summary("Parameters & checks"),
+          shiny::div(class = "plot-pair",
+            card("Reference estimates", DT::DTOutput("reference_parameters")),
+            card("Comparison estimates", DT::DTOutput("candidate_parameters"))),
+          shiny::div(class = "plot-pair",
+            card("Reference checks", shiny::uiOutput("reference_checks")),
+            card("Comparison checks", shiny::uiOutput("candidate_checks")))),
+        shiny::tags$details(class = "review-card", shiny::tags$summary("Code differences"), shiny::uiOutput("code_diff")),
         shiny::div(
           class = "comparison-layout",
           card(
@@ -207,24 +225,16 @@ nmreview_app <- function(demo = FALSE) {
         ),
         card("Residual candidates", shiny::div(class = "muted", "Candidate flags support review. Change the threshold to explore observations."), DT::DTOutput("outliers"))
       ),
-      shiny::tabPanel("Parameters & checks",
-        value = "parameters",
-        shiny::div(
-          class = "plot-pair",
-          card("Reference estimates", DT::DTOutput("reference_parameters")),
-          card("Comparison estimates", DT::DTOutput("candidate_parameters"))
-        ),
-        shiny::div(
-          class = "plot-pair", card("Reference checks", shiny::uiOutput("reference_checks")),
-          card("Comparison checks", shiny::uiOutput("candidate_checks"))
-        )
-      ),
+      shiny::tabPanel("Inspector", value = "inspector", nm_inspector_ui(card)),
+      shiny::tabPanel("Evaluation", value = "evaluation",
+        shiny::tabsetPanel(id = "evaluation_page", type = "pills", selected = "vpc",
       shiny::tabPanel("Bootstrap",
         value = "bootstrap",
         shiny::div(
           class = "comparison-toolbar", shiny::selectInput("bootstrap_analysis", "Bootstrap analysis", choices = character()),
           shiny::selectInput("bootstrap_parameter", "Parameter", choices = character()),
-          shiny::selectInput("bootstrap_confidence", "Interval summary", c("Stored / default summary" = "source", "Recalculate 90% (R type 7)" = "0.9", "Recalculate 95% (R type 7)" = "0.95", "Recalculate 99% (R type 7)" = "0.99"), selected = "source")
+          shiny::tags$details(shiny::tags$summary("Interval options"),
+            shiny::selectInput("bootstrap_confidence", "Interval summary", c("Stored / default summary" = "source", "Recalculate 90% (R type 7)" = "0.9", "Recalculate 95% (R type 7)" = "0.95", "Recalculate 99% (R type 7)" = "0.99"), selected = "source"))
         ),
         shiny::uiOutput("bootstrap_status"), shiny::div(
           class = "plot-pair",
@@ -232,7 +242,7 @@ nmreview_app <- function(demo = FALSE) {
           card("Intervals across imported analyses", shiny::plotOutput("bootstrap_intervals", height = "360px"))
         ),
         card("Bootstrap summary", DT::DTOutput("bootstrap_summary")),
-        card("Replicate inclusion and source", DT::DTOutput("bootstrap_replicates"))
+        shiny::tags$details(shiny::tags$summary("Replicate inclusion and source"), card("Replicates", DT::DTOutput("bootstrap_replicates")))
       ),
       shiny::tabPanel("VPC / pcVPC",
         value = "vpc",
@@ -241,13 +251,25 @@ nmreview_app <- function(demo = FALSE) {
           shiny::selectInput("vpc_candidate", "Comparison VPC analysis", choices = character()),
           shiny::selectInput("vpc_stratum", "Stratum", choices = character())
         ),
-        shiny::div(class = "vpc-percentiles", shiny::checkboxGroupInput("vpc_percentiles", "Percentiles to display", choices = character(), inline = TRUE)),
+        shiny::tags$details(shiny::tags$summary("Percentile options"),
+          shiny::div(class = "vpc-percentiles", shiny::checkboxGroupInput("vpc_percentiles", "Percentiles to display", choices = character(), inline = TRUE))),
         shiny::uiOutput("vpc_status"),
         card("Observed percentiles and confidence bands for simulated percentiles", shiny::div(
           class = "plot-pair",
           shiny::plotOutput("vpc_reference_plot", height = "400px"), shiny::plotOutput("vpc_candidate_plot", height = "400px")
         )),
-        card("Stored bin values", DT::DTOutput("vpc_bins"))
+        shiny::tags$details(shiny::tags$summary("Stored bin values"), card("Bins", DT::DTOutput("vpc_bins")))
+      ),
+      shiny::tabPanel("Sensitivity", value = "sensitivity",
+        card("Compare completed sensitivity runs",
+          shiny::selectizeInput("sensitivity_runs", "Runs to compare with the reference", choices = NULL, multiple = TRUE),
+          DT::DTOutput("sensitivity_table"),
+          shiny::tags$details(shiny::tags$summary("Change notes and estimates"),
+            shiny::div(class = "action-row", shiny::selectInput("sensitivity_note_run", "Run", character()),
+              shiny::textInput("sensitivity_note", "Change from reference"),
+              shiny::actionButton("save_sensitivity_note", "Save note")),
+            DT::DTOutput("sensitivity_parameters")))
+      ))
       ),
       shiny::tabPanel("Compact archive",
         value = "archive",
@@ -279,7 +301,7 @@ nmreview_app <- function(demo = FALSE) {
         shiny::p("Folder dialogs select folders on the computer running R. Run this app locally to use your Windows Explorer folders.")
       ))
     ),
-    shiny::div(class = "app-footer", "NM Review 0.1.0", shiny::span("Local analysis | portable results", class = "muted"))
+    shiny::div(class = "app-footer", "NM Review 0.2.0", shiny::span("Local analysis | portable results", class = "muted"))
   )
 
   server <- function(input, output, session) {
@@ -307,8 +329,10 @@ nmreview_app <- function(demo = FALSE) {
       point(NULL)
       archive_result(NULL)
       choices <- model_choices(p)
-      shiny::updateSelectInput(session, "reference", choices = choices, selected = unname(choices[1]))
-      shiny::updateSelectInput(session, "candidate", choices = choices, selected = unname(choices[min(2, length(choices))]))
+      shiny::updateSelectInput(session, "reference", choices = choices, selected = if (isTRUE(p$view$reference %in% choices)) p$view$reference else unname(choices[1]))
+      shiny::updateSelectInput(session, "candidate", choices = choices, selected = if (isTRUE(p$view$candidate %in% choices)) p$view$candidate else unname(choices[min(2, length(choices))]))
+      shiny::updateSelectInput(session, "diagnostic", selected = p$view$diagnostic %or% "residual_time")
+      shiny::updateNumericInput(session, "threshold", value = p$view$threshold %or% 3)
       shiny::updateSelectInput(session, "bootstrap_analysis", choices = analysis_choices(p$bootstraps))
       vpc_choices <- c("No analysis selected" = "", analysis_choices(p$vpcs))
       shiny::updateSelectInput(session, "vpc_reference", choices = vpc_choices, selected = if (length(p$vpcs)) "1" else "")
@@ -356,8 +380,35 @@ nmreview_app <- function(demo = FALSE) {
       }
       p$models[[found[1]]]
     }
-    reference <- shiny::reactive(selected_model(input$reference))
-    candidate <- shiny::reactive(selected_model(input$candidate))
+    reference_model <- shiny::reactive(selected_model(input$reference))
+    candidate_model <- shiny::reactive(selected_model(input$candidate))
+    stage_token <- function(model, stage) paste0(model$id, "#", stage$number)
+    active_stage <- function(model, token) {
+      for (stage in model$stages) if (identical(token, stage_token(model, stage))) return(nm_select_stage(model, as.character(stage$number)))
+      model
+    }
+    reference <- shiny::reactive(active_stage(reference_model(), input$reference_stage))
+    candidate <- shiny::reactive(active_stage(candidate_model(), input$candidate_stage))
+    output$stage_controls <- shiny::renderUI({
+      stage_input <- function(model, role, label) {
+        if (!length(model$stages) || (!is.null(model$review) && length(model$stages) == 1L)) return(NULL)
+        choices <- stats::setNames(vapply(model$stages, function(s) stage_token(model, s), ""),
+          vapply(model$stages, function(s) paste("Table", s$number, s$method), ""))
+        input_id <- paste0(role, "_stage")
+        saved <- shiny::isolate(input[[input_id]]) %or% project()$view[[input_id]]
+        if (!isTRUE(saved %in% choices)) saved <- project()$view[[input_id]]
+        shiny::selectInput(input_id, paste(label, "analysis"), c("Select estimation table" = "", choices), selected = saved %or% "")
+      }
+      shiny::div(class = "plot-pair", stage_input(reference_model(), "reference", "Reference"),
+        stage_input(candidate_model(), "candidate", "Comparison"))
+    })
+    save_inspector_view <- nm_inspector_server(input, output, session, project, reference, candidate, safe_action)
+    save_review_view <- nm_review_panel_server(input, output, session, project, reference, candidate, safe_action)
+    archive_project <- function() {
+      p <- save_review_view(save_inspector_view(project(), isTRUE(input$include_observations)))
+      for (id in c("reference", "candidate", "reference_stage", "candidate_stage", "diagnostic", "threshold")) p$view[[id]] <- input[[id]]
+      p
+    }
     comparison <- shiny::reactive({
       shiny::req(reference(), candidate())
       compare_models(reference(), candidate())
@@ -382,16 +433,24 @@ nmreview_app <- function(demo = FALSE) {
     })
     output$runs <- DT::renderDT({
       shiny::req(project())
-      review_datatable(model_rows(project(), input$reference, input$candidate), rows = 20)
+      review_datatable(model_rows(project(), input$reference, input$candidate, input$runs_details), rows = 20)
     })
     assign_run <- function(input_id) {
-      shiny::req(project(), input$runs_rows_selected)
-      id <- project()$models[[input$runs_rows_selected[1]]]$id
+      shiny::req(project())
+      if (identical(input$runs_view, "Tree")) {
+        id <- input$tree_run
+        shiny::req(id %in% vapply(project()$models, function(m) m$id, ""))
+      } else {
+        shiny::req(input$runs_rows_selected)
+        id <- project()$models[[input$runs_rows_selected[1]]]$id
+      }
       shiny::updateSelectInput(session, input_id, selected = id)
     }
     shiny::observeEvent(input$set_reference, assign_run("reference"))
     shiny::observeEvent(input$set_candidate, assign_run("candidate"))
     shiny::observeEvent(input$go_compare, shiny::updateTabsetPanel(session, "page", selected = "compare"))
+    shiny::observeEvent(input$go_archive, shiny::updateTabsetPanel(session, "page", selected = "archive"))
+    shiny::observeEvent(input$go_help, shiny::updateTabsetPanel(session, "page", selected = "help"))
     shiny::observeEvent(list(input$reference, input$candidate), {
       point(NULL)
       dvid <- unique(c(reference()$data$DVID, candidate()$data$DVID))
@@ -425,6 +484,7 @@ nmreview_app <- function(demo = FALSE) {
         class = paste("comparison-state", if (isTRUE(c$comparable)) "ready" else "caution"),
         shiny::strong(paste("Delta OFV (comparison - reference)", if (isTRUE(c$comparable)) display_number(c$delta, 6) else "withheld")),
         shiny::span(paste(c$reason %or% "", collapse = " | ")),
+        if (nzchar(c$warning %or% "")) shiny::tags$small(c$warning),
         shiny::tags$small("Interpret the difference together with the likelihood definition, response scale and estimation settings.")
       )
     })
@@ -645,7 +705,8 @@ nmreview_app <- function(demo = FALSE) {
       notes <- c(paste("Termination", m$status), paste("Covariance", covariance_label(m$covariance)), m$notices, cov$notices)
       shiny::tagList(
         shiny::tags$ul(lapply(unique(notes), shiny::tags$li)),
-        shiny::tags$pre(paste(m$termination %or% character(), collapse = "\n")),
+        nm_review_details(m),
+        shiny::tags$details(shiny::tags$summary("Termination messages"), shiny::tags$pre(paste(m$termination %or% character(), collapse = "\n"))),
         if (is.data.frame(m$shrinkage) && nrow(m$shrinkage)) shiny::tags$pre(paste(utils::capture.output(print(m$shrinkage)), collapse = "\n")),
         if (is.data.frame(m$correlation) && nrow(m$correlation)) shiny::tags$pre(paste(utils::capture.output(print(m$correlation)), collapse = "\n")),
         if (is.data.frame(cov$data) && nrow(cov$data)) shiny::tags$pre(paste(utils::capture.output(print(cov$data)), collapse = "\n")),
@@ -702,7 +763,8 @@ nmreview_app <- function(demo = FALSE) {
         return(shiny::p(class = "notice", "No bootstrap results loaded. Scan a folder containing raw_results_<model>.csv or bootstrap_results.csv."))
       }
       d <- b$parameters
-      counts <- if (!is.null(d) && nrow(d)) paste(length(unique(d$iteration[!d$is_original])), "replicates |", length(unique(d$iteration[d$included & !d$is_original])), "included") else "Stored summary only"
+      planned <- nm_one_num(b$settings$samples %or% NA_real_)
+      counts <- if (!is.null(d) && nrow(d)) paste("Planned", if (is.finite(planned)) planned else "unknown", "|", length(unique(d$iteration[!d$is_original])), "replicates recorded |", length(unique(d$iteration[d$included & !d$is_original])), "included") else "Stored summary only"
       shiny::div(
         class = "notice", shiny::strong(counts), shiny::p(paste(b$notices, collapse = " | ")),
         shiny::tags$details(shiny::tags$summary("Import settings and inclusion rules"), shiny::tags$pre(jsonlite::toJSON(b$settings %or% list(), auto_unbox = TRUE, pretty = TRUE)))
@@ -856,7 +918,7 @@ nmreview_app <- function(demo = FALSE) {
         shiny::req(project())
         temporary <- tempfile(fileext = ".sqlite")
         on.exit(unlink(temporary), add = TRUE)
-        save_archive(project(), temporary, include_observations = isTRUE(input$include_observations))
+        save_archive(archive_project(), temporary, include_observations = isTRUE(input$include_observations))
         if (!file.copy(temporary, file, overwrite = TRUE)) stop("Could not prepare the archive download.")
       }
     )
@@ -864,7 +926,7 @@ nmreview_app <- function(demo = FALSE) {
       shiny::req(project())
       if (!dir.exists(input$archive_directory)) stop("Select an existing destination folder.")
       path <- tempfile(pattern = paste0("nmreview-", format(Sys.time(), "%Y%m%d-%H%M%S"), "-"), tmpdir = input$archive_directory, fileext = ".sqlite")
-      save_archive(project(), path, include_observations = isTRUE(input$include_observations))
+      save_archive(archive_project(), path, include_observations = isTRUE(input$include_observations))
       reopened <- load_archive(path)
       archive_result(list(path = path, bytes = file.info(path)$size, runs = length(reopened$models)))
     }))
@@ -882,4 +944,4 @@ nmreview_app <- function(demo = FALSE) {
   shiny::shinyApp(ui, server)
 }
 
-utils::globalVariables(c(".x", ".y", ".flag", "TIME", "DV", "IPRED", "Run", "estimate", "included", "median", "lower", "upper", "original", "Analysis", "x", "percentile", "ci_lower", "ci_upper", "observed", "simulated"))
+utils::globalVariables(c(".data", ".x", ".y", ".flag", "TIME", "DV", "IPRED", "Run", "estimate", "included", "median", "lower", "upper", "original", "Analysis", "x", "percentile", "ci_lower", "ci_upper", "observed", "simulated"))

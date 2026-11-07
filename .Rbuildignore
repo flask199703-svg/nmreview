@@ -6,4 +6,5 @@
 ^tools$
 ^Launch NM Review\.cmd$
 ^.*\.tar\.gz$
+^nmreview-github-source-.*\.zip$
 ^.*\.Rcheck$

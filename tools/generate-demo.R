@@ -186,6 +186,9 @@ write_mod <- function(path, spec) {
   lines <- c(
     "; SYNTHETIC DEMO ONLY: this control stream was not executed by NONMEM.",
     sprintf("$PROBLEM Synthetic oral PK review fixture %d", spec$id),
+    "; NMREVIEW LIKELIHOOD=Continuous normal with common constant convention",
+    "; NMREVIEW DV_SCALE=Linear concentration",
+    if (spec$id != 101) "; NMREVIEW PARENT=run101",
     "$INPUT ROW ID TIME DV AMT EVID MDV DOSEGRP SEX WT OUTMAG",
     "$DATA synthetic_data.csv IGNORE=@",
     "$SUBROUTINES ADVAN2 TRANS2",
@@ -202,7 +205,8 @@ write_mod <- function(path, spec) {
     "$COVARIANCE PRINT=E",
     sprintf(paste0("$TABLE ROW ID TIME DV PRED IPRED CWRES EVID MDV AMT RATE CMT ",
                    "IWRES WRES OUTMAG DOSEGRP SEX WT ETA(1) ONEHEADER NOPRINT ",
-                   "FILE=sdtab%d"), spec$id)
+                   "FILE=sdtab%d"), spec$id),
+    sprintf("$TABLE ID SEX WT ETA(1) FIRSTONLY ONEHEADER NOPRINT FILE=patab%d", spec$id)
   )
   write_demo_lines(path, lines)
 }
@@ -224,8 +228,11 @@ write_listing <- function(path, spec, table, source_label) {
     "0MINIMIZATION SUCCESSFUL",
     "NO. OF FUNCTION EVALUATIONS USED: 118",
     "NO. OF SIG. DIGITS IN FINAL EST.: 4.2",
+    if (spec$id != 103) c("ETABAR: 0.013 -0.006", "SE: 0.016 0.023", "P VAL: 0.42 0.79",
+      if (spec$id == 101) "ETAshrink(%): 12 18" else "ETAshrinkSD(%): 21 38",
+      if (spec$id == 101) "EPSshrink(%): 8" else "EPSshrinkSD(%): 14"),
     sprintf("#OBJV:******************************************** % .6f **************************************************", spec$ofv),
-    "COVARIANCE STEP SUCCESSFUL",
+    if (spec$id == 103) "COVARIANCE STEP FAILED" else "COVARIANCE STEP SUCCESSFUL",
     "SYNTHETIC FIXTURE VALUES; NOT A REAL MODEL FIT."
   )
   write_demo_lines(path, lines)
@@ -245,6 +252,7 @@ write_ext <- function(path, spec) {
     format_ext_row(1, estimates * c(rep(1.03, length(spec$theta)), 1, 1, 1), spec$ofv + 2),
     format_ext_row(-1000000000, estimates, spec$ofv),
     format_ext_row(-1000000001, ses, 0),
+    format_ext_row(-1000000003, c(3, 0.5, 1.5, rep(0, length(estimates) - 3)), 0),
     format_ext_row(-1000000006, fixed, 0)
   )
   write_demo_lines(path, lines)
@@ -445,6 +453,17 @@ for (run_name in names(model_specs)) {
                 run_table, run_name)
   write_ext(file.path(run_dir, paste0(run_name, ".ext")), spec)
   write_demo_table(run_table, file.path(run_dir, sprintf("sdtab%d", spec$id)))
+  subject_rows <- run_table[!duplicated(run_table$ID), c("ID", "SEX", "WT", "ETA1")]
+  write_demo_table(subject_rows, file.path(run_dir, sprintf("patab%d", spec$id)))
+  if (spec$id == 102) {
+    write_demo_lines(file.path(run_dir, "run102.shk"), c(
+      "TABLE NO. 1: First Order Conditional Estimation with Interaction: Problem=1 Subproblem=0",
+      "TYPE ETA(1) ETA(2)",
+      "1 0.013 -0.006", "2 0.016 0.023", "3 0.42 0.79",
+      "4 21 38", "5 14 0", "6 19 35", "7 24 24",
+      "8 37.59 61.56", "9 34.39 57.75", "10 26.04 0"
+    ))
+  }
   if (run_name %in% c("run101", "run102")) {
     write_bootstrap(run_dir, spec)
     write_vpc(file.path(run_dir, "pcVPC"), run_name, run_table,

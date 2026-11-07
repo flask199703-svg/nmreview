@@ -180,10 +180,10 @@ nm_parse_table_section <- function(lines, start_line = 1L, source_file = NA_char
     }
   }
   if (is.na(header_i)) {
-    marker_i <- which(vapply(lines2, function(z) any(grepl("^(ID|TIME|DV|PRED|IPRED|CWRES|IWRES|ITERATION|THETA|OMEGA|SIGMA)$", nm_header_tokens(z), ignore.case = TRUE)), logical(1)))
+    marker_i <- which(vapply(lines2, function(z) any(grepl("^(ID|TIME|DV|PRED|IPRED|CWRES|IWRES|ITERATION|THETA|OMEGA|SIGMA|TYPE|NAME)$", nm_header_tokens(z), ignore.case = TRUE)), logical(1)))
     if (length(marker_i)) header_i <- marker_i[[1L]]
   }
-  if (is.na(header_i)) {
+  if (is.na(header_i) || header_i >= length(lines2)) {
     return(NULL)
   }
   header <- nm_clean_name(nm_header_tokens(lines2[[header_i]]))
@@ -202,7 +202,12 @@ nm_parse_table_section <- function(lines, start_line = 1L, source_file = NA_char
   }
   out <- as.data.frame(lapply(seq_along(header), function(j) vapply(vals, function(v) if (length(v) >= j) v[[j]] else NA_character_, character(1))), stringsAsFactors = FALSE, check.names = FALSE)
   names(out) <- header
-  out[] <- lapply(out, nm_numericish)
+  identifiers <- toupper(header) %in% c("ID", "USUBJID", "SUBJID", "STUDY", "STUDYID")
+  out[!identifiers] <- lapply(out[!identifiers], nm_numericish)
+  if (any(identifiers)) out[identifiers] <- lapply(out[identifiers], function(x) {
+    x[is.na(x) | x %in% c("", ".", "NA", "*")] <- NA_character_
+    x
+  })
   out$.source_line <- as.integer(row_lines)
   out$.source_file <- as.character(source_file)
   out
@@ -236,6 +241,7 @@ nm_read_table_file <- function(path) {
       } else {
         NA_integer_
       }
+      attr(x, "table_header") <- lines[[markers[[i]]]]
       ans[[length(ans) + 1L]] <- x
     }
   }
@@ -342,6 +348,7 @@ nm_listing_blocks <- function(path) {
   }
   marker <- which(grepl("(?i)(?:PROBLEM\\s*(?:NO\\.?|NUMBER)?\\s*[:=]?\\s*|#PROB(?:LEM)?\\s*)[0-9]+", lines, perl = TRUE))
   if (!length(marker)) {
+    attr(lines, "source_lines") <- seq_along(lines)
     return(list(all = lines))
   }
   ids <- vapply(lines[marker], function(z) {
@@ -353,7 +360,10 @@ nm_listing_blocks <- function(path) {
   ids <- ids[keep]
   ends <- c(marker[-1L] - 1L, length(lines))
   out <- list()
-  for (i in seq_along(marker)) out[[as.character(ids[[i]])]] <- lines[marker[[i]]:ends[[i]]]
+  for (i in seq_along(marker)) {
+    index <- marker[[i]]:ends[[i]]
+    out[[as.character(ids[[i]])]] <- structure(lines[index], source_lines = index)
+  }
   out
 }
 
@@ -376,7 +386,14 @@ nm_extract_listing <- function(lines) {
   ofv <- get_num(c("#\\s*OBJV", "OBJECTIVE\\s+FUNCTION(?:\\s+VALUE)?", "FINAL\\s+OBJECTIVE", "OFV"))
   nind <- get_num(c("NUMBER\\s+OF\\s+INDIVIDUALS", "NO\\.?\\s+OF\\s+INDIVIDUALS", "SUBJECTS"))
   nobs <- get_num(c("NUMBER\\s+OF\\s+OBSERVATIONS", "NO\\.?\\s+OF\\s+OBSERVATIONS", "NO\\.?\\s+OF\\s+OBS(?:ERVATION)?\\s+RECS?"))
-  status <- if (any(grepl("MINIMIZATION\\s+SUCCESSFUL|ESTIMATION\\s+SUCCESSFUL|SUCCESSFULLY\\s+MINIMIZED", lines, ignore.case = TRUE))) "success" else if (any(grepl("MINIMIZATION\\s+(?:TERMINATED|FAILED)|UNSUCCESSFUL|ERROR|ABORT", lines, ignore.case = TRUE))) "failed" else if (any(grepl("MINIMIZATION|ESTIMATION", lines, ignore.case = TRUE))) "unknown" else "not_run"
+  term <- nm_termination_excerpt(lines)
+  has <- function(pattern) any(grepl(pattern, term, ignore.case = TRUE, perl = TRUE))
+  status <- "unknown"
+  if (has("MINIMIZATION\\s+(?:TERMINATED|FAILED|UNSUCCESSFUL)|ESTIMATION\\s+(?:FAILED|UNSUCCESSFUL)|^\\s*0?(?:ERROR IN|RUN ABORTED|ANALYSIS ABORTED)")) status <- "failed"
+  else if (has("EXPECTATION ONLY PROCESS WAS COMPLETED")) status <- "evaluation only"
+  else if (has("MINIMIZATION\\s+SUCCESSFUL|ESTIMATION\\s+SUCCESSFUL|SUCCESSFULLY\\s+MINIMIZED")) status <- "success"
+  else if (has("(?:STOCHASTIC|ACCUMULATION|OPTIMIZATION) (?:PORTION )?WAS COMPLETED")) status <- "completed"
+  else if (!has("MINIMIZATION|ESTIMATION|#TERM") && !any(grepl("^\\s*#METH\\b", lines))) status <- "not_run"
   method <- ""
   mh <- grep("(?i)#\\s*METH|METHOD|ESTIMATION METHOD", lines, value = TRUE, perl = TRUE)
   if (length(mh)) method <- trimws(sub("^.*?(?:#\\s*METH|METHOD|ESTIMATION METHOD)\\s*[:=]?\\s*", "", mh[[length(mh)]], ignore.case = TRUE, perl = TRUE))
@@ -475,12 +492,12 @@ nm_choose_table <- function(candidates, declared = character(), run_stem = "") {
   list(data = sec$data, path = chosen, table_number = as.integer(sec$index), notice = notes)
 }
 
-nm_ext_parameters <- function(ext_path, preferred_table = NA_integer_) {
+nm_ext_parameters <- function(ext_path, preferred_table = NA_integer_, sections = NULL) {
   empty <- data.frame(parameter = character(), estimate = numeric(), se = numeric(), rse = numeric(), fixed = logical(), stringsAsFactors = FALSE)
   if (is.null(ext_path) || !length(ext_path) || is.na(ext_path) || !file.exists(ext_path)) {
     return(list(parameters = empty, ofv = NA_real_, table_number = NA_integer_, notices = character()))
   }
-  sec <- nm_read_ext_sections(ext_path)
+  sec <- sections %||% nm_read_ext_sections(ext_path)
   if (!length(sec)) {
     return(list(parameters = empty, ofv = NA_real_, table_number = NA_integer_, notices = "EXT could not be parsed"))
   }
@@ -508,15 +525,15 @@ nm_ext_parameters <- function(ext_path, preferred_table = NA_integer_) {
   se_row <- which(!is.na(iter) & iter == -1000000001)
   fixed_row <- which(!is.na(iter) & iter == -1000000006)
   notes <- character()
-  if (!length(fin)) notes <- c(notes, "EXT has no final-estimate sentinel row (-1000000000)")
+  if (length(fin) != 1L) notes <- c(notes, "EXT requires exactly one final-estimate sentinel row (-1000000000)")
   if (!length(se_row)) notes <- c(notes, "EXT has no standard-error sentinel row (-1000000001)")
   table_number <- table_numbers[[k]]
   if (is.na(table_number)) table_number <- k
-  if (!length(fin)) {
+  if (length(fin) != 1L) {
     return(list(parameters = empty, ofv = NA_real_, table_number = table_number, notices = notes))
   }
   fin <- fin[[1L]]
-  se_row <- if (length(se_row)) se_row[[1L]] else NA_integer_
+  se_row <- if (length(se_row) == 1L) se_row[[1L]] else NA_integer_
   ofv_i <- nm_find_col(d, c("OBJ", "OFV", "OBJECTIVE", "OBJV"))
   excluded <- c(iter_i, ofv_i)
   excluded <- excluded[!is.na(excluded)]
@@ -526,18 +543,31 @@ nm_ext_parameters <- function(ext_path, preferred_table = NA_integer_) {
   estimates <- vapply(pcols, function(j) nm_one_num(d[[j]][fin]), numeric(1))
   ses <- vapply(pcols, function(j) if (is.na(se_row)) NA_real_ else nm_one_num(d[[j]][se_row]), numeric(1))
   nm <- names(d)[pcols]
-  fixed <- rep(FALSE, length(pcols))
-  if (length(fixed_row)) {
+  fixed <- rep(NA, length(pcols))
+  if (length(fixed_row) == 1L) {
     fixed <- vapply(pcols, function(j) {
       v <- nm_one_num(d[[j]][fixed_row[[1L]]])
-      !is.na(v) && v != 0
+      if (is.na(v) || !v %in% c(0, 1)) NA else v == 1
     }, logical(1))
   }
   params <- data.frame(parameter = as.character(nm), estimate = estimates, se = ses, rse = ifelse(is.na(ses) | is.na(estimates) | estimates == 0, NA_real_, abs(ses / estimates) * 100), fixed = as.logical(fixed), stringsAsFactors = FALSE, check.names = FALSE)
-  params$se[params$fixed] <- NA_real_
-  params$rse[params$fixed] <- NA_real_
+  params$se[which(params$fixed)] <- NA_real_
+  params$rse[which(params$fixed)] <- NA_real_
+  extra <- function(sentinel, cols = pcols) {
+    i <- which(iter == sentinel)
+    if (length(i) != 1L) return(rep(NA_real_, length(cols)))
+    vapply(cols, function(j) nm_one_num(d[[j]][i]), numeric(1))
+  }
+  params$initial <- extra(0)
+  params$final_derivative <- extra(-1000000008)
+  reported <- extra(-1000000003, setdiff(seq_len(ncol(d)), c(iter_i, grep("^\\.", names(d))))[1L])
+  iterations <- which(is.finite(iter) & iter > -1000000000)
+  keep <- if (length(iterations) > 100L) iterations[unique(round(seq(1, length(iterations), length.out = 100L)))] else iterations
+  trace <- if (!is.na(ofv_i)) data.frame(Iteration = iter[keep], Objective = nm_num(d[[ofv_i]][keep])) else data.frame()
   ofv <- if (is.na(ofv_i)) NA_real_ else nm_one_num(d[[ofv_i]][fin])
-  list(parameters = params, ofv = ofv, table_number = table_number, notices = notes)
+  list(parameters = params, ofv = ofv, table_number = table_number, notices = notes,
+    condition_reported = reported, header = attr(d, "table_header") %||% "",
+    trace = trace, iteration_rows = length(iterations), final_line = d$.source_line[[fin]])
 }
 
 nm_covariance <- function(files, root, listing_lines = character(), control_lines = character()) {
@@ -598,21 +628,26 @@ nm_control_signature <- function(lines) {
   paste(toupper(trimws(z)), collapse = " | ")
 }
 
-nm_model_from_sources <- function(root, control, listing, ext, table_candidates, all_files, problem_info, model_index = 1L) {
+nm_model_from_sources <- function(root, control, listing, ext, table_candidates, all_files, problem_info, catalog, cache) {
   notices <- character()
-  stem_path <- if (length(control) && !is.na(control)) control else if (length(listing) && !is.na(listing)) listing else if (length(ext) && !is.na(ext)) ext else paste0("model", model_index)
+  stem_path <- if (length(control) && !is.na(control)) control else if (length(listing) && !is.na(listing)) listing else ext
   stem <- tools::file_path_sans_ext(basename(stem_path))
+  all_files <- nm_find_related(all_files, stem)
   lb <- nm_listing_blocks(listing)
   block <- lb[[as.character(problem_info$problem)]] %||% lb$all %||% character()
   li <- nm_extract_listing(block)
-  if (nzchar(problem_info$method) && nzchar(li$method) && !grepl(problem_info$method, li$method, ignore.case = TRUE, fixed = TRUE)) notices <- c(notices, "control and listing estimation methods differ")
+  if (nzchar(problem_info$method) && nzchar(li$method) && !grepl(tolower(problem_info$method), tolower(li$method), fixed = TRUE)) notices <- c(notices, "control and listing estimation methods differ")
   method <- problem_info$method
   if (!nzchar(method)) method <- li$method
   if (!nzchar(method)) method <- "unknown"
   ext_info <- nm_ext_parameters(ext, NA_integer_)
   notices <- c(notices, ext_info$notices)
-  if (isTRUE(problem_info$multiple_est)) {
-    notices <- c(notices, "multiple estimation stages require manual review; final parameters and OFV withheld")
+  ext_problem <- nm_stage_header(ext_info$header %||% "", "Problem")
+  ext_sub <- nm_stage_header(ext_info$header %||% "", "Subproblem")
+  ambiguous <- isTRUE(problem_info$multiple_est) || any(grepl("multiple EXT tables", ext_info$notices)) ||
+    (!is.na(ext_problem) && ext_problem != problem_info$problem) || (!is.na(ext_sub) && ext_sub != 0L)
+  if (ambiguous) {
+    notices <- c(notices, "Select an identified estimation table; final parameters and OFV withheld")
     ext_info$parameters <- ext_info$parameters[0, , drop = FALSE]
     ext_info$ofv <- NA_real_
     ext_info$table_number <- NA_integer_
@@ -641,18 +676,20 @@ nm_model_from_sources <- function(root, control, listing, ext, table_candidates,
   add_source(ext, "ext")
   add_source(table_info$path, "table")
   table_num <- if (isTRUE(problem_info$multiple_est)) NA_integer_ else if (!is.na(ext_info$table_number)) ext_info$table_number else table_info$table_number
-  ofv_value <- if (isTRUE(problem_info$multiple_est)) NA_real_ else if (!is.na(ext_info$ofv)) ext_info$ofv else li$ofv
+  ofv_value <- if (ambiguous) NA_real_ else if (!is.na(ext_info$ofv)) ext_info$ofv else li$ofv
   main_path <- if (length(control) && !is.na(control)) control else if (length(listing) && !is.na(listing)) listing else ext
-  list(
-    id = paste0(stem, ":p", problem_info$problem), label = problem_info$label,
+  model <- list(
+    id = paste0(tools::file_path_sans_ext(nm_relpath(stem_path, root)), ":p", problem_info$problem), label = problem_info$label,
     source = list(root = NULL, relative = nm_relpath(main_path, root), files = sf),
     problem = as.integer(problem_info$problem), table_number = as.integer(table_num), method = as.character(method),
     status = as.character(li$status), covariance = nm_covariance(all_files, root, block, problem_info$text), ofv = ofv_value,
     nind = if (is.na(nind)) NA_integer_ else as.integer(nind), nobs = if (is.na(nobs)) NA_integer_ else as.integer(nobs),
+    reported_nind = li$nind, reported_nobs = li$nobs,
     parameters = ext_info$parameters, data = data, termination = nm_termination_excerpt(block),
     diagnostic_text = nm_diagnostic_text(all_files, root),
     notices = unique(notices[nzchar(notices)]), likelihood = NA_character_, dv_scale = NA_character_, control_signature = nm_control_signature(problem_info$text)
   )
+  nm_review_model(model, problem_info, block, ext, all_files, catalog, root, cache)
 }
 
 nm_project_file_role <- function(path) {
@@ -731,6 +768,7 @@ import_project <- function(path) {
   model_files <- unique(c(controls, listings, exts))
   group_keys <- unique(paste(dirname(model_files), tolower(tools::file_path_sans_ext(basename(model_files))), sep = "\u001f"))
   models <- list()
+  review_cache <- new.env(parent = emptyenv())
   for (g in group_keys) {
     gp <- strsplit(g, "\u001f", fixed = TRUE)[[1L]]
     base_dir <- gp[[1L]]
@@ -764,11 +802,16 @@ import_project <- function(path) {
         next
       }
       group_files <- files[dirname(files) == base_dir]
-      m <- nm_model_from_sources(root, if (length(ctl)) ctl else NA_character_, if (length(lst)) lst else NA_character_, if (length(ext_p)) ext_p[[1L]] else NA_character_, table_cand, group_files, p, length(models) + 1L)
+      m <- nm_model_from_sources(root, if (length(ctl)) ctl else NA_character_, if (length(lst)) lst else NA_character_, if (length(ext_p)) ext_p[[1L]] else NA_character_, table_cand, group_files, p, files, review_cache)
       models[[length(models) + 1L]] <- m
     }
   }
   if (!length(models)) notices <- c(notices, "no fitted model detected")
+  if (length(models)) {
+    names_only <- vapply(models, function(m) basename(m$id), "")
+    duplicated_name <- duplicated(names_only) | duplicated(names_only, fromLast = TRUE)
+    for (i in which(!duplicated_name)) models[[i]]$id <- names_only[[i]]
+  }
   structure(list(schema_version = 1L, models = models, bootstraps = bootstraps, vpcs = vpcs, manifest = manifest, notices = unique(notices[nzchar(notices)])), class = c("nmreview_project", "list"))
 }
 

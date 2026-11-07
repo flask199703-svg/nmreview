@@ -47,6 +47,17 @@ body { font-size: 14px; }
 .archive-controls { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; }
 .archive-controls .form-group { margin-bottom: 0; min-width: 280px; }
 .app-footer { display: flex; justify-content: space-between; margin-top: 20px; font-size: 12px; }
+#page [data-value="archive"], #page [data-value="help"] { display: none; }
+#evaluation_page { margin-bottom: 14px; }
+.review-card > summary, .review-card details > summary { cursor: pointer; font-weight: 600; }
+.review-card details { margin: 10px 0; }
+.run-summary { display: flex; flex-direction: column; gap: 4px; padding: 9px 0; overflow-wrap: anywhere; }
+.run-summary + .run-summary { border-left: 1px solid var(--line); padding-left: 16px; }
+.filter-chip { display: inline-block; background: #e3f0eb; border-radius: 4px; padding: 3px 8px; margin: 3px 6px; overflow-wrap: anywhere; }
+.diagnostic-table, .code-diff { max-width: 100%; overflow: auto; }
+.model-tree, .model-tree ul { list-style: none; padding-left: 16px; }
+.model-tree li { margin: 5px 0; }
+.model-tree ul { border-left: 1px solid var(--line); margin-left: 12px; }
 table.dataTable { font-size: 12px; width: 100% !important; }
 table.dataTable tbody tr.selected { background-color: #d7eee8 !important; color: #153a46 !important; }
 pre { max-height: 280px; overflow: auto; font-size: 12px; background: #f4f7f8; padding: 12px; }
