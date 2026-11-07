@@ -1,0 +1,13 @@
+options(repos = c(CRAN = "https://cloud.r-project.org"))
+user_library <- path.expand(Sys.getenv("R_LIBS_USER"))
+if (!nzchar(user_library)) user_library <- file.path(path.expand("~"), "R", "library")
+dir.create(user_library, recursive = TRUE, showWarnings = FALSE)
+.libPaths(c(user_library, .libPaths()))
+dependencies <- c("shiny", "bslib", "DT", "ggplot2", "DBI", "RSQLite", "jsonlite", "digest")
+missing <- dependencies[!vapply(dependencies, requireNamespace, logical(1), quietly = TRUE)]
+if (length(missing)) install.packages(missing, lib = user_library)
+args <- commandArgs(trailingOnly = FALSE)
+script <- sub("^--file=", "", args[startsWith(args, "--file=")][1])
+root <- normalizePath(file.path(dirname(script), ".."), mustWork = TRUE)
+install.packages(root, repos = NULL, type = "source", lib = user_library)
+cat("Ready. Launch with nmreview::run_app() or the Windows launcher.\n")

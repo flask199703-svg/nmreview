@@ -1,0 +1,17 @@
+.Rhistory
+.RData
+.Ruserdata
+.Rproj.user/
+*.sqlite
+*.sqlite-*
+*.sqlite.lock/
+*.nmreview
+*.tar.gz
+*.Rcheck/
+*.zip
+local-data/
+verification-local/
+node_modules/
+.env
+.env.*
+!.env.example

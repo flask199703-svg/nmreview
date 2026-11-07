@@ -1,0 +1,9 @@
+^\.github$
+^\.git$
+^\.gitignore$
+^\.gitattributes$
+^verification-local$
+^tools$
+^Launch NM Review\.cmd$
+^.*\.tar\.gz$
+^.*\.Rcheck$

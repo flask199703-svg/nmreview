@@ -1,0 +1,8 @@
+SYNTHETIC DEMO METADATA -- NO PsN EXECUTION
+samples: 8
+seed: 20261107
+threads: 1
+skip_minimization_terminated: 1
+skip_covariance_step_terminated: 1
+skip_estimate_near_boundary: 1
+skip_with_covstep_warnings: 0

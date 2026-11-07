@@ -1,0 +1,11 @@
+tool: vpc
+model: run103
+tool_version: synthetic fixture (no PsN execution)
+tool_options:
+  predcorr: 0
+  idv: TIME
+  dv: DV
+  stratify_on: DOSEGRP
+  samples: 100
+  auto_bin: 3
+  confidence_interval: 95

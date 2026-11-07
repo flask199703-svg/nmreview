@@ -1,0 +1,1 @@
+vpc run102.mod -samples=100 -predcorr -stratify_on=DOSEGRP -idv=TIME -auto_bin=3

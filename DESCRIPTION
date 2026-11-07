@@ -1,0 +1,15 @@
+Package: nmreview
+Type: Package
+Title: Local Review and Compact Storage of NONMEM Results
+Version: 0.1.0
+Authors@R: person("NM Review", "Contributors", role = c("aut", "cre"), email = "nmreview@example.org")
+Description: A local Shiny application for comparing completed NONMEM runs,
+    inspecting linked observations, and preserving compact PsN bootstrap and
+    prediction-corrected visual predictive check results in a portable archive.
+    Includes a reproducible synthetic example that works without NONMEM.
+License: MIT + file LICENSE
+Encoding: UTF-8
+Depends: R (>= 4.3.0)
+Imports: shiny, bslib, DT, ggplot2, DBI, RSQLite, jsonlite, digest, stats, utils, grDevices, tools
+Suggests: tcltk
+NeedsCompilation: no

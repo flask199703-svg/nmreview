@@ -1,0 +1,11 @@
+tool: bootstrap
+model: run102
+tool_version: synthetic fixture (no PsN execution)
+tool_options:
+  samples: 8
+  seed: 20261107
+  threads: 1
+  skip_minimization_terminated: 1
+  skip_covariance_step_terminated: 1
+  skip_estimate_near_boundary: 1
+  skip_with_covstep_warnings: 0

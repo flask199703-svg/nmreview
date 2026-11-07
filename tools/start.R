@@ -1,0 +1,11 @@
+args <- commandArgs(trailingOnly = FALSE)
+script <- sub("^--file=", "", args[startsWith(args, "--file=")][1])
+root <- normalizePath(file.path(dirname(script), ".."), mustWork = TRUE)
+user_library <- path.expand(Sys.getenv("R_LIBS_USER"))
+if (dir.exists(user_library)) .libPaths(c(user_library, .libPaths()))
+needed <- c("shiny", "bslib", "DT", "ggplot2", "DBI", "RSQLite", "jsonlite", "digest")
+missing <- needed[!vapply(needed, requireNamespace, logical(1), quietly = TRUE)]
+if (length(missing)) stop("Run tools/setup.R first. Missing packages: ", paste(missing, collapse = ", "))
+setwd(root)
+for (file in list.files("R", pattern = "[.]R$", full.names = TRUE)) source(file, local = .GlobalEnv, encoding = "UTF-8")
+run_app(launch.browser = TRUE)
